@@ -21,12 +21,14 @@ import (
 )
 
 type DailyCardPayload struct {
-	Text      string  `json:"text"`
-	CardName  string  `json:"card_name"`
-	ImageURL  string  `json:"image_url"`
-	SourceURL *string `json:"source_url"`
-	DateKey   string  `json:"date_key"`
+	Text             string  `json:"text"`
+	CardName         string  `json:"card_name"`
+	ImageURL         string  `json:"image_url"`
+	SourceURL        *string `json:"source_url"`
+	DateKey          string  `json:"date_key"`
+	MediaDescription string  `json:"media_description"`
 }
+
 
 func main() {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.LUTC)
@@ -39,13 +41,15 @@ func main() {
 	if err != nil {
 		log.Fatalf("[fatal] payload読み込み失敗: %v", err)
 	}
-	log.Printf("[step 1/7] payload 読み込み成功: date_key=%s card_name=%q image_url=%s source_url=%s text_preview=%q",
-		payload.DateKey,
-		payload.CardName,
-		payload.ImageURL,
-		nilToString(payload.SourceURL),
-		truncateString(payload.Text, 120),
-	)
+	log.Printf("[step 1/7] payload 読み込み成功: date_key=%s card_name=%q image_url=%s source_url=%s text_preview=%q media_description_preview=%q",
+	payload.DateKey,
+	payload.CardName,
+	payload.ImageURL,
+	nilToString(payload.SourceURL),
+	truncateString(payload.Text, 120),
+	truncateString(payload.MediaDescription, 240),
+)
+
 
 	communityID := os.Getenv("COMMUNITY_ID")
 	clientID := os.Getenv("CLIENT_ID")
@@ -108,8 +112,18 @@ func main() {
 	}
 	log.Printf("[step 5/7] 画像ダウンロード成功: bytes=%d content_type=%s", len(imageBytes), contentType)
 
-	log.Printf("[step 6/7] メディアアップロード開始: card_name=%q", payload.CardName)
-	mediaID, err := uploadPostImage(authCtx, client, accessToken, payload.CardName, imageBytes, contentType)
+	description := strings.TrimSpace(payload.MediaDescription)
+	if description == "" {
+	description = payload.CardName
+}
+
+	log.Printf("[step 6/7] メディアアップロード開始: card_name=%q description_preview=%q",
+		payload.CardName,
+		truncateString(description, 240),
+)
+
+mediaID, err := uploadPostImage(authCtx, client, accessToken, description, imageBytes, contentType)
+
 	if err != nil {
 		log.Fatalf("[fatal] 画像アップロード失敗: %v", err)
 	}
@@ -246,12 +260,18 @@ func uploadPostImage(
 		description,
 	)
 
-	initResp, err := client.InitiatePostMediaUpload(initCtx, &application_apiv1.InitiatePostMediaUploadRequest{
-		ContentType: contentType,
-		DataSize:    uint64(len(data)),
-		MediaType:   application_apiv1.InitiatePostMediaUploadRequest_TYPE_IMAGE,
-		Description: &description,
-	})
+var descriptionPtr *string
+if strings.TrimSpace(description) != "" {
+	descriptionPtr = &description
+}
+
+initResp, err := client.InitiatePostMediaUpload(ctx, &application_apiv1.InitiatePostMediaUploadRequest{
+	ContentType: contentType,
+	DataSize:    uint64(len(data)),
+	MediaType:   application_apiv1.InitiatePostMediaUploadRequest_TYPE_IMAGE,
+	Description: descriptionPtr,
+})
+
 	if err != nil {
 		return "", fmt.Errorf("InitiatePostMediaUpload 失敗: %w", err)
 	}
