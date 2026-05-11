@@ -29,7 +29,6 @@ type DailyCardPayload struct {
 	MediaDescription string  `json:"media_description"`
 }
 
-
 func main() {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.LUTC)
 	log.Println("=== mixi2 Daily Card Poster: start ===")
@@ -42,14 +41,13 @@ func main() {
 		log.Fatalf("[fatal] payload読み込み失敗: %v", err)
 	}
 	log.Printf("[step 1/7] payload 読み込み成功: date_key=%s card_name=%q image_url=%s source_url=%s text_preview=%q media_description_preview=%q",
-	payload.DateKey,
-	payload.CardName,
-	payload.ImageURL,
-	nilToString(payload.SourceURL),
-	truncateString(payload.Text, 120),
-	truncateString(payload.MediaDescription, 240),
-)
-
+		payload.DateKey,
+		payload.CardName,
+		payload.ImageURL,
+		nilToString(payload.SourceURL),
+		truncateString(payload.Text, 120),
+		truncateString(payload.MediaDescription, 240),
+	)
 
 	communityID := os.Getenv("COMMUNITY_ID")
 	clientID := os.Getenv("CLIENT_ID")
@@ -114,16 +112,15 @@ func main() {
 
 	description := strings.TrimSpace(payload.MediaDescription)
 	if description == "" {
-	description = payload.CardName
-}
+		description = payload.CardName
+	}
 
 	log.Printf("[step 6/7] メディアアップロード開始: card_name=%q description_preview=%q",
 		payload.CardName,
 		truncateString(description, 240),
-)
+	)
 
-mediaID, err := uploadPostImage(authCtx, client, accessToken, description, imageBytes, contentType)
-
+	mediaID, err := uploadPostImage(authCtx, client, accessToken, description, imageBytes, contentType)
 	if err != nil {
 		log.Fatalf("[fatal] 画像アップロード失敗: %v", err)
 	}
@@ -254,24 +251,23 @@ func uploadPostImage(
 	initCtx, cancelInit := context.WithTimeout(ctx, 30*time.Second)
 	defer cancelInit()
 
-	log.Printf("[debug] InitiatePostMediaUpload: content_type=%s size=%d description=%q",
+	log.Printf("[debug] InitiatePostMediaUpload: content_type=%s size=%d description_preview=%q",
 		contentType,
 		len(data),
-		description,
+		truncateString(description, 240),
 	)
 
-var descriptionPtr *string
-if strings.TrimSpace(description) != "" {
-	descriptionPtr = &description
-}
+	var descriptionPtr *string
+	if strings.TrimSpace(description) != "" {
+		descriptionPtr = &description
+	}
 
-initResp, err := client.InitiatePostMediaUpload(ctx, &application_apiv1.InitiatePostMediaUploadRequest{
-	ContentType: contentType,
-	DataSize:    uint64(len(data)),
-	MediaType:   application_apiv1.InitiatePostMediaUploadRequest_TYPE_IMAGE,
-	Description: descriptionPtr,
-})
-
+	initResp, err := client.InitiatePostMediaUpload(initCtx, &application_apiv1.InitiatePostMediaUploadRequest{
+		ContentType: contentType,
+		DataSize:    uint64(len(data)),
+		MediaType:   application_apiv1.InitiatePostMediaUploadRequest_TYPE_IMAGE,
+		Description: descriptionPtr,
+	})
 	if err != nil {
 		return "", fmt.Errorf("InitiatePostMediaUpload 失敗: %w", err)
 	}
