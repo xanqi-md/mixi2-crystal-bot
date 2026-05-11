@@ -10,6 +10,7 @@ on:
 jobs:
   post-daily-card:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout code
@@ -25,20 +26,120 @@ jobs:
         with:
           go-version: '1.24.6'
 
+      - name: Show tool versions
+        run: |
+          set -euxo pipefail
+          crystal --version
+          go version
+          python3 --version
+          ruby --version || true
+
+      - name: Show runtime configuration
+        env:
+          CLIENT_ID: ${{ secrets.MIXI_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.MIXI_CLIENT_SECRET }}
+          COMMUNITY_ID: ${{ secrets.MIXI_COMMUNITY_ID }}
+        run: |
+          set -euxo pipefail
+          echo "DAILY_CARD_HTML_URL=https://ygogenesys-ja.com/"
+          echo "DAILY_CARD_IMAGE_BASE_URL=https://images.ygoprodeck.com/images/cards_cropped"
+          echo "DAILY_CARD_PAYLOAD_PATH=/tmp/daily_card_payload.json"
+
+          if [ -n "${CLIENT_ID}" ]; then
+            echo "MIXI_CLIENT_ID is set"
+          else
+            echo "MIXI_CLIENT_ID is NOT set"
+            exit 1
+          fi
+
+          if [ -n "${CLIENT_SECRET}" ]; then
+            echo "MIXI_CLIENT_SECRET is set"
+          else
+            echo "MIXI_CLIENT_SECRET is NOT set"
+            exit 1
+          fi
+
+          if [ -n "${COMMUNITY_ID}" ]; then
+            echo "MIXI_COMMUNITY_ID is set: ${COMMUNITY_ID}"
+          else
+            echo "MIXI_COMMUNITY_ID is NOT set"
+            exit 1
+          fi
+
+      - name: Check source site availability
+        run: |
+          set -euxo pipefail
+          curl -I --max-time 30 https://ygogenesys-ja.com/
+          curl -I --max-time 30 https://images.ygoprodeck.com/
+
       - name: Select daily card with Crystal
         env:
           DAILY_CARD_HTML_URL: https://ygogenesys-ja.com/
           DAILY_CARD_IMAGE_BASE_URL: https://images.ygoprodeck.com/images/cards_cropped
           DAILY_CARD_LABEL: 今日の1枚
           DAILY_CARD_PAYLOAD_PATH: /tmp/daily_card_payload.json
-        run: crystal run src/daily_card.cr
+        run: |
+          set -euxo pipefail
+          crystal run src/daily_card.cr
 
       - name: Show generated payload
-        run: cat /tmp/daily_card_payload.json
+        run: |
+          set -euxo pipefail
+          ls -l /tmp/daily_card_payload.json
+          echo "----- payload begin -----"
+          cat /tmp/daily_card_payload.json
+          echo
+          echo "----- payload end -----"
+
+      - name: Validate payload JSON and inspect image URL
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          import json
+          import urllib.request
+
+          path = "/tmp/daily_card_payload.json"
+          with open(path, "r", encoding="utf-8") as f:
+              payload = json.load(f)
+
+          print("payload keys:", sorted(payload.keys()))
+          print("date_key:", payload.get("date_key"))
+          print("card_name:", payload.get("card_name"))
+          print("image_url:", payload.get("image_url"))
+          print("text preview:", payload.get("text", "")[:120])
+
+          required = ["text", "card_name", "image_url", "date_key"]
+          for key in required:
+              value = payload.get(key)
+              if not isinstance(value, str) or not value.strip():
+                  raise SystemExit(f"payload validation failed: {key} is empty")
+
+          image_url = payload["image_url"]
+          req = urllib.request.Request(
+              image_url,
+              headers={"User-Agent": "mixi2-crystal-bot/1.0"},
+              method="GET",
+          )
+          with urllib.request.urlopen(req, timeout=30) as resp:
+              print("image status:", resp.status)
+              print("image content-type:", resp.headers.get("Content-Type"))
+              print("image content-length:", resp.headers.get("Content-Length"))
+              chunk = resp.read(32)
+              print("image first bytes length:", len(chunk))
+          PY
 
       - name: Download Go dependencies
         working-directory: bin
-        run: go mod download
+        run: |
+          set -euxo pipefail
+          go mod download
+
+      - name: Build Go poster for verification
+        working-directory: bin
+        run: |
+          set -euxo pipefail
+          go build -v -o /tmp/post_daily_card ./post_daily_card.go
+          ls -l /tmp/post_daily_card
 
       - name: Post daily card to mixi2 community
         working-directory: bin
@@ -49,4 +150,6 @@ jobs:
           API_ADDRESS: application-api.mixi.social:443
           COMMUNITY_ID: ${{ secrets.MIXI_COMMUNITY_ID }}
           DAILY_CARD_PAYLOAD_PATH: /tmp/daily_card_payload.json
-        run: go run post_daily_card.go
+        run: |
+          set -euxo pipefail
+          go run post_daily_card.go
