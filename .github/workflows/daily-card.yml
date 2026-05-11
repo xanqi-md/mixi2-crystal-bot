@@ -24,20 +24,9 @@ jobs:
         with:
           go-version: '1.24.6'
 
-      - name: Resolve card source variables
-        run: |
-          echo "DAILY_CARD_HTML_URL=${DAILY_CARD_HTML_URL:-$DAILY_CARD_HTML_URL_SECRET}" >> "$GITHUB_ENV"
-          echo "DAILY_CARD_IMAGE_BASE_URL=${DAILY_CARD_IMAGE_BASE_URL:-$DAILY_CARD_IMAGE_BASE_URL_SECRET}" >> "$GITHUB_ENV"
-        env:
-          DAILY_CARD_HTML_URL: ${{ vars.DAILY_CARD_HTML_URL }}
-          DAILY_CARD_IMAGE_BASE_URL: ${{ vars.DAILY_CARD_IMAGE_BASE_URL }}
-          DAILY_CARD_HTML_URL_SECRET: ${{ secrets.DAILY_CARD_HTML_URL }}
-          DAILY_CARD_IMAGE_BASE_URL_SECRET: ${{ secrets.DAILY_CARD_IMAGE_BASE_URL }}
-
       - name: Select daily card with Crystal
         env:
-          DAILY_CARD_HTML_URL: ${{ env.DAILY_CARD_HTML_URL }}
-          DAILY_CARD_IMAGE_BASE_URL: ${{ env.DAILY_CARD_IMAGE_BASE_URL }}
+          DAILY_CARD_HTML_URL: https://ygogenesys-ja.com/
           DAILY_CARD_LABEL: 今日の1枚
           DAILY_CARD_PAYLOAD_PATH: /tmp/daily_card_payload.json
         run: crystal run src/daily_card.cr
