@@ -1,7 +1,5 @@
 require "http/client"
 require "json"
-require "uri"
-require "set"
 require "file_utils"
 
 class CardCandidate
@@ -29,35 +27,31 @@ class DailyCardPayload
 end
 
 class DailyCardSelector
-  IMG_TAG_REGEX       = /<img\b[^>]*>/im
-  ATTR_REGEX          = /([A-Za-z0-9:_-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/m
-  DEFAULT_NAME_ATTRS  = ["data-card-name", "data-name", "alt", "title"] of String
-  DEFAULT_IMAGE_ATTRS = ["data-src", "data-lazy-src", "data-original", "src"] of String
+  IMAGE_BASE = "https://images.ygoprodeck.com/images/cards_cropped"
 
   def initialize
-    @html_url = ENV["DAILY_CARD_HTML_URL"]?
-    @html_file = ENV["DAILY_CARD_HTML_FILE"]?
-    @image_base_url = ENV["DAILY_CARD_IMAGE_BASE_URL"]?
+    @html_url = ENV["DAILY_CARD_HTML_URL"]? || "https://ygogenesys-ja.com/"
     @output_path = ENV["DAILY_CARD_PAYLOAD_PATH"]? || "/tmp/daily_card_payload.json"
     @post_label = ENV["DAILY_CARD_LABEL"]? || "今日の1枚"
   end
 
   def run
-    html = load_html
-    cards = extract_cards(html)
+    html = fetch_html(@html_url)
+    cards = extract_cards_from_const_cards(html)
 
     if cards.empty?
-      STDERR.puts "カード候補を抽出できませんでした。HTML 内の img alt/title/data-card-name を確認してください。"
+      STDERR.puts "const CARDS からカード候補を抽出できませんでした。"
       exit 1
     end
 
     date_key = jst_date_key
     chosen = select_card(cards, date_key)
+
     payload = DailyCardPayload.new(
       "#{@post_label}\n#{chosen.name}",
       chosen.name,
       chosen.image_url,
-      chosen.source_url,
+      @html_url,
       date_key
     )
 
@@ -71,114 +65,104 @@ class DailyCardSelector
     puts "payload: #{@output_path}"
   end
 
-  private def load_html : String
-    if html_url = @html_url
-      response = HTTP::Client.get(html_url, headers: HTTP::Headers{
-        "User-Agent" => "mixi2-crystal-bot/1.0",
-      })
-      unless response.success?
-        raise "HTML 取得失敗: #{response.status_code} #{response.status_message}"
-      end
-      return response.body
+  private def fetch_html(url : String) : String
+    response = HTTP::Client.get(url, headers: HTTP::Headers{
+      "User-Agent" => "mixi2-crystal-bot/1.0",
+    })
+
+    unless response.success?
+      raise "HTML 取得失敗: #{response.status_code} #{response.status_message}"
     end
 
-    if html_file = @html_file
-      return File.read(html_file)
-    end
-
-    raise "DAILY_CARD_HTML_URL または DAILY_CARD_HTML_FILE を指定してください"
+    response.body
   end
 
-  private def extract_cards(html : String) : Array(CardCandidate)
+  private def extract_cards_from_const_cards(html : String) : Array(CardCandidate)
+    marker = "const CARDS = ["
+    marker_index = html.index(marker)
+    raise "HTML 内に `const CARDS = [` が見つかりません。" unless marker_index
+
+    array_start = marker_index + marker.size - 1
+    array_end = find_json_array_end(html, array_start)
+
+    json_text = html.byte_slice(array_start, array_end - array_start + 1)
+    parsed = JSON.parse(json_text).as_a
+
     cards = [] of CardCandidate
-    seen = Set(String).new
+    parsed.each do |item|
+      obj = item.as_h
 
-    offset = 0
-    while match = IMG_TAG_REGEX.match(html, offset)
-      tag = match[0]
-      attrs = parse_attributes(tag)
-      image_url = first_present(attrs, DEFAULT_IMAGE_ATTRS)
-      name = first_present(attrs, DEFAULT_NAME_ATTRS)
-      offset = match.end(0)
+      name = as_string(obj["n"]?)
+      image_id = as_string(obj["i"]?)
 
-      next if image_url.nil? || image_url.to_s.empty?
-      next if image_url.to_s.starts_with?("data:")
-      next if name.nil? || name.to_s.strip.empty?
+      next if name.nil? || name.not_nil!.strip.empty?
+      next if image_id.nil? || image_id.not_nil!.strip.empty?
 
-      normalized_name = clean_text(name.to_s)
-      normalized_image_url = resolve_url(image_url.to_s)
-      next if normalized_name.empty? || normalized_image_url.empty?
-
-      key = "#{normalized_name}\u0000#{normalized_image_url}"
-      next if seen.includes?(key)
-      seen.add(key)
-
-      cards << CardCandidate.new(normalized_name, normalized_image_url, @html_url || @html_file)
+      cards << CardCandidate.new(
+        name.not_nil!.strip,
+        "#{IMAGE_BASE}/#{image_id.not_nil!}.jpg",
+        @html_url
+      )
     end
 
     cards
   end
 
-  private def parse_attributes(tag : String) : Hash(String, String)
-    attrs = {} of String => String
-    offset = 0
+  private def as_string(value : JSON::Any?) : String?
+    return nil unless value
+    raw = value.raw
+    case raw
+    when String
+      raw
+    when Int64, Int32, Float64, Float32, Bool
+      raw.to_s
+    else
+      nil
+    end
+  end
 
-    while match = ATTR_REGEX.match(tag, offset)
-      key = match[1].downcase
-      value = match[2]? || match[3]? || match[4]? || ""
-      attrs[key] = decode_html_entities(value)
-      offset = match.end(0)
+  private def find_json_array_end(text : String, start_index : Int32) : Int32
+    bytes = text.to_slice
+    i = start_index
+    depth = 0
+    in_string = false
+    escaped = false
+
+    while i < bytes.size
+      ch = bytes[i].chr
+
+      if in_string
+        if escaped
+          escaped = false
+        elsif ch == '\\'
+          escaped = true
+        elsif ch == '"'
+          in_string = false
+        end
+      else
+        case ch
+        when '"'
+          in_string = true
+        when '['
+          depth += 1
+        when ']'
+          depth -= 1
+          return i if depth == 0
+        end
+      end
+
+      i += 1
     end
 
-    attrs
-  end
-
-  private def first_present(attrs : Hash(String, String), keys : Array(String)) : String?
-    keys.each do |key|
-      value = attrs[key]?
-      return value unless value.nil? || value.empty?
-    end
-    nil
-  end
-
-  private def decode_html_entities(text : String) : String
-    text
-      .gsub("&amp;", "&")
-      .gsub("&quot;", "\"")
-      .gsub("&#39;", "'")
-      .gsub("&apos;", "'")
-      .gsub("&lt;", "<")
-      .gsub("&gt;", ">")
-      .gsub("&nbsp;", " ")
-  end
-
-  private def clean_text(text : String) : String
-    decode_html_entities(text)
-      .gsub(/<[^>]+>/, "")
-      .gsub(/\s+/, " ")
-      .strip
-  end
-
-  private def resolve_url(url : String) : String
-    return url if url.starts_with?("http://") || url.starts_with?("https://")
-    base = @image_base_url || @html_url
-    return url unless base
-
-    begin
-      URI.parse(base).resolve(url).to_s
-    rescue
-      url
-    end
+    raise "const CARDS の JSON 配列終端を検出できませんでした。"
   end
 
   private def jst_date_key : String
-    now = Time.utc + 9.hours
-    now.to_s("%Y-%m-%d")
+    (Time.utc + 9.hours).to_s("%Y-%m-%d")
   end
 
   private def select_card(cards : Array(CardCandidate), date_key : String) : CardCandidate
-    seed = date_key.hash
-    rng = Random.new(seed)
+    rng = Random.new(date_key.hash)
     cards[rng.rand(cards.size)]
   end
 end
