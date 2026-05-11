@@ -8,7 +8,6 @@ class MixiBot
     @client_secret = ENV["MIXI_CLIENT_SECRET"]? || ""
     @token_url = ENV["MIXI_TOKEN_URL"]? || "https://application-auth.mixi.social/oauth2/token"
     @api_server = ENV["MIXI_API_SERVER"]? || "application-api.mixi.social"
-    @go_binary = File.expand_path("bin/post.exe", Dir.current)
   end
 
   def get_access_token
@@ -36,34 +35,8 @@ class MixiBot
   end
 
   def end_of_month?
-    true  # テスト用: 常に true
-  end
-
-  def post_via_go(message : String, token : String) : Bool
-    unless File.exists?(@go_binary)
-      puts "✗ Go バイナリが見つかりません: #{@go_binary}"
-      return false
-    end
-
-    puts "Go サブプロセスで投稿を実行..."
-    
-    begin
-      process = Process.new(@go_binary, [message, token],
-        env: {"MIXI_API_SERVER" => @api_server})
-      
-      status = process.wait
-      
-      if status.success?
-        puts "✓ Go プロセス成功"
-        true
-      else
-        puts "✗ Go プロセス失敗: code #{status.exit_code}"
-        false
-      end
-    rescue ex
-      puts "プロセス実行エラー: #{ex.message}"
-      false
-    end
+    tomorrow = Time.local + 1.day
+    tomorrow.day == 1
   end
 
   def run_once
@@ -75,16 +48,19 @@ class MixiBot
       return
     end
 
-    puts "end_of_month? = #{end_of_month?}"
+    tomorrow = Time.local + 1.day
+    puts "明日の日付: #{tomorrow.day}日"
+    puts "月末判定: #{end_of_month?}"
 
     if end_of_month?
       puts "✓ 今日は月末です！"
       message = "【今日は月末です！ミッションの消化をお忘れなく！】"
-      post_via_go(message, token)
     else
       puts "今日は月末ではありません"
+      return
     end
 
+    puts "投稿メッセージ: #{message}"
     puts "=== mixi2 ボット実行完了 ==="
   end
 end
