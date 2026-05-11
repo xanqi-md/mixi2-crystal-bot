@@ -1,39 +1,52 @@
-name: Monthly Post (Crystal + Go)
+name: Debug Secrets
 
 on:
-  schedule:
-    - cron: '0 21 * * *'   # 毎日 UTC 21:00 = JST 6:00
   workflow_dispatch:
 
 jobs:
-  post:
+  debug:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Crystal
-        uses: crystal-lang/install-crystal@v1
-        with:
-          crystal: latest
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.21'
-
-      - name: Build Go binary
-        working-directory: bin
+      - name: Check environment
         run: |
-          go mod init mixi2-poster 2>/dev/null || true
-          go mod tidy
-          go build -o post post.go
-          chmod +x post
-          ls -la post
-
-      - name: Run Crystal bot
+          echo "CLIENT_ID 長: ${#MIXI_CLIENT_ID}"
+          echo "CLIENT_SECRET 長: ${#MIXI_CLIENT_SECRET}"
+          echo "TOKEN_URL: $MIXI_TOKEN_URL"
+          echo "API_SERVER: $MIXI_API_SERVER"
         env:
           MIXI_CLIENT_ID: ${{ secrets.MIXI_CLIENT_ID }}
           MIXI_CLIENT_SECRET: ${{ secrets.MIXI_CLIENT_SECRET }}
           MIXI_TOKEN_URL: https://application-auth.mixi.social/oauth2/token
           MIXI_API_SERVER: application-api.mixi.social
-        run: crystal run src/main.cr
+
+      - uses: actions/checkout@v4
+      - uses: crystal-lang/install-crystal@v1
+      - name: Test token fetch
+        run: |
+          cat > test.cr << 'EOF'
+          require "http/client"
+          require "json"
+          
+          client_id = ENV["MIXI_CLIENT_ID"]? || "NOT_SET"
+          client_secret = ENV["MIXI_CLIENT_SECRET"]? || "NOT_SET"
+          token_url = ENV["MIXI_TOKEN_URL"]? || ""
+          
+          puts "CLIENT_ID: #{client_id[0..10]}..."
+          puts "CLIENT_SECRET: #{client_secret[0..10]}..."
+          puts "TOKEN_URL: #{token_url}"
+          
+          body = "grant_type=client_credentials&client_id=#{client_id}&client_secret=#{client_secret}"
+          response = HTTP::Client.post(token_url,
+            headers: HTTP::Headers{"Content-Type" => "application/x-www-form-urlencoded"},
+            body: body)
+          
+          puts "Status: #{response.status_code}"
+          puts "Body: #{response.body[0..200]}"
+          EOF
+          
+          crystal run test.cr
+        env:
+          MIXI_CLIENT_ID: ${{ secrets.MIXI_CLIENT_ID }}
+          MIXI_CLIENT_SECRET: ${{ secrets.MIXI_CLIENT_SECRET }}
+          MIXI_TOKEN_URL: https://application-auth.mixi.social/oauth2/token
+          MIXI_API_SERVER: application-api.mixi.social
