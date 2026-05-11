@@ -97,6 +97,10 @@ class DailyCardSelector
 
   private def extract_cards_from_const_cards(html : String, source_url : String?) : Array(CardCandidate)
     json_array_text = extract_cards_json_array(html)
+
+    puts "CARDS JSON 先頭: #{json_array_text[0, Math.min(120, json_array_text.size)]}"
+    puts "CARDS JSON 末尾: #{json_array_text[Math.max(0, json_array_text.size - 120), Math.min(120, json_array_text.size)]}"
+
     raw_cards = JSON.parse(json_array_text).as_a
 
     cards = [] of CardCandidate
@@ -126,52 +130,32 @@ class DailyCardSelector
   end
 
   private def extract_cards_json_array(html : String) : String
-    marker = "const CARDS = "
-    marker_index = html.index(marker)
-    raise "#{marker} が見つかりませんでした" unless marker_index
+    start_marker = "const CARDS = "
+    end_marker = "const META ="
 
-    search_start = marker_index + marker.bytesize
-    array_start = html.index('[', search_start)
-    raise "CARDS 配列の開始位置が見つかりませんでした" unless array_start
+    start_index = html.index(start_marker)
+    raise "#{start_marker} が見つかりませんでした" unless start_index
 
-    array_end = find_matching_array_end(html, array_start)
-    raise "CARDS 配列の終了位置が見つかりませんでした" if array_end < array_start
+    body_start = start_index + start_marker.size
 
-    html[array_start..array_end]
-  end
+    end_index = html.index(end_marker, body_start)
+    raise "#{end_marker} が見つかりませんでした" unless end_index
 
-  private def find_matching_array_end(text : String, start_index : Int32) : Int32
-    depth = 0
-    in_string = false
-    escaped = false
+    json_text = html[body_start...end_index].strip
 
-    i = start_index
-    while i < text.bytesize
-      ch = text.byte_at(i)
-
-      if in_string
-        if escaped
-          escaped = false
-        elsif ch == '\\'.ord
-          escaped = true
-        elsif ch == '"'.ord
-          in_string = false
-        end
-      else
-        if ch == '"'.ord
-          in_string = true
-        elsif ch == '['.ord
-          depth += 1
-        elsif ch == ']'.ord
-          depth -= 1
-          return i if depth == 0
-        end
-      end
-
-      i += 1
+    if json_text.ends_with?(";")
+      json_text = json_text[0, json_text.size - 1].rstrip
     end
 
-    -1
+    unless json_text.starts_with?("[")
+      raise "CARDS JSON の先頭が '[' ではありません"
+    end
+
+    unless json_text.ends_with?("]")
+      raise "CARDS JSON の末尾が ']' ではありません"
+    end
+
+    json_text
   end
 
   private def build_image_url(image_id : String) : String
