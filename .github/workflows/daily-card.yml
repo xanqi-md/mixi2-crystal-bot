@@ -1,0 +1,58 @@
+name: Daily Card Post
+
+on:
+  schedule:
+    # GitHub Actions の cron は UTC。22:00 UTC = 07:00 JST
+    - cron: '0 22 * * *'
+  workflow_dispatch:
+
+jobs:
+  post-daily-card:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Crystal
+        uses: crystal-lang/install-crystal@v1
+        with:
+          crystal: latest
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.6'
+
+      - name: Resolve card source variables
+        run: |
+          echo "DAILY_CARD_HTML_URL=${DAILY_CARD_HTML_URL:-$DAILY_CARD_HTML_URL_SECRET}" >> "$GITHUB_ENV"
+          echo "DAILY_CARD_IMAGE_BASE_URL=${DAILY_CARD_IMAGE_BASE_URL:-$DAILY_CARD_IMAGE_BASE_URL_SECRET}" >> "$GITHUB_ENV"
+        env:
+          DAILY_CARD_HTML_URL: ${{ vars.DAILY_CARD_HTML_URL }}
+          DAILY_CARD_IMAGE_BASE_URL: ${{ vars.DAILY_CARD_IMAGE_BASE_URL }}
+          DAILY_CARD_HTML_URL_SECRET: ${{ secrets.DAILY_CARD_HTML_URL }}
+          DAILY_CARD_IMAGE_BASE_URL_SECRET: ${{ secrets.DAILY_CARD_IMAGE_BASE_URL }}
+
+      - name: Select daily card with Crystal
+        env:
+          DAILY_CARD_HTML_URL: ${{ env.DAILY_CARD_HTML_URL }}
+          DAILY_CARD_IMAGE_BASE_URL: ${{ env.DAILY_CARD_IMAGE_BASE_URL }}
+          DAILY_CARD_LABEL: 今日の1枚
+          DAILY_CARD_PAYLOAD_PATH: /tmp/daily_card_payload.json
+        run: crystal run src/daily_card.cr
+
+      - name: Download Go dependencies
+        working-directory: bin
+        run: go mod download
+
+      - name: Post daily card to mixi2 community
+        working-directory: bin
+        env:
+          CLIENT_ID: ${{ secrets.MIXI_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.MIXI_CLIENT_SECRET }}
+          TOKEN_URL: https://application-auth.mixi.social/oauth2/token
+          API_ADDRESS: application-api.mixi.social:443
+          COMMUNITY_ID: ${{ secrets.MIXI_COMMUNITY_ID }}
+          DAILY_CARD_PAYLOAD_PATH: /tmp/daily_card_payload.json
+        run: go run post_daily_card.go
