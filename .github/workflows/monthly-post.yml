@@ -1,4 +1,4 @@
-name: Monthly Post (Crystal Check + Go Post)
+name: Monthly Post (Plugin)
 
 on:
   schedule:
@@ -38,76 +38,7 @@ jobs:
       - name: Create Go post script
         run: |
           mkdir -p /tmp/mixi2-sample/cmd/post
-          cat > /tmp/mixi2-sample/cmd/post/main.go << 'EOF'
-          package main
-
-          import (
-            "context"
-            "crypto/tls"
-            "fmt"
-            "log"
-            "os"
-            "time"
-
-            "github.com/mixigroup/mixi2-application-sdk-go/auth"
-            application_apiv1 "github.com/mixigroup/mixi2-application-sdk-go/gen/go/social/mixi/application/service/application_api/v1"
-            "google.golang.org/grpc"
-            "google.golang.org/grpc/credentials"
-          )
-
-          func main() {
-            fmt.Println("=== mixi2 Monthly Post Bot (Go) ===")
-            
-            now := time.Now()
-            tomorrow := now.AddDate(0, 0, 1)
-            fmt.Printf("現在時刻（UTC）: %s\n", now.Format("2006-01-02 15:04:05 MST"))
-            fmt.Printf("明日の日付: %d日\n", tomorrow.Day())
-            
-            if tomorrow.Day() != 1 {
-              fmt.Printf("月末ではありません（明日は %d 日）\n", tomorrow.Day())
-              return
-            }
-            
-            authenticator, err := auth.NewAuthenticator(
-              os.Getenv("CLIENT_ID"),
-              os.Getenv("CLIENT_SECRET"),
-              os.Getenv("TOKEN_URL"),
-            )
-            if err != nil {
-              log.Fatal("認証初期化失敗:", err)
-            }
-            fmt.Println("✓ 認証初期化成功")
-
-            apiConn, err := grpc.NewClient(
-              os.Getenv("API_ADDRESS"),
-              grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{})),
-            )
-            if err != nil {
-              log.Fatal("API接続失敗:", err)
-            }
-            defer apiConn.Close()
-            fmt.Println("✓ API接続成功")
-
-            client := application_apiv1.NewApplicationServiceClient(apiConn)
-
-            authCtx, err := authenticator.AuthorizedContext(context.Background())
-            if err != nil {
-              log.Fatal("認証コンテキスト取得失敗:", err)
-            }
-            fmt.Println("✓ 認証コンテキスト取得成功")
-
-            fmt.Println("\n=== 月末投稿を実行します ===")
-            
-            resp, err := client.CreatePost(authCtx, &application_apiv1.CreatePostRequest{
-              Text: "【今日は月末です！ミッションの消化をお忘れなく！】",
-            })
-            if err != nil {
-              log.Fatal("ポスト投稿失敗:", err)
-            }
-            fmt.Printf("✓ ポスト投稿成功\n")
-            fmt.Printf("  Post ID: %s\n", resp.Post.PostId)
-          }
-          EOF
+          cp bin/post.go /tmp/mixi2-sample/cmd/post/main.go
       
       - name: Install Go dependencies
         working-directory: /tmp/mixi2-sample
@@ -120,4 +51,5 @@ jobs:
           CLIENT_SECRET: ${{ secrets.MIXI_CLIENT_SECRET }}
           TOKEN_URL: https://application-auth.mixi.social/oauth2/token
           API_ADDRESS: application-api.mixi.social:443
+          COMMUNITY_ID: ${{ secrets.MIXI_COMMUNITY_ID }}
         run: go run cmd/post/main.go
