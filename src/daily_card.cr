@@ -68,7 +68,7 @@ class DailyCardSelector
     @html_file = ENV["DAILY_CARD_HTML_FILE"]?
     @image_base_url = ENV["DAILY_CARD_IMAGE_BASE_URL"]? || DEFAULT_IMAGE_BASE_URL
     @output_path = ENV["DAILY_CARD_PAYLOAD_PATH"]? || "/tmp/daily_card_payload.json"
-    @post_label = ENV["DAILY_CARD_LABEL"]? || "今日の1枚(画像の左下、【ALT】ボタンよりカード詳細を確認できます！)"
+    @post_label = ENV["DAILY_CARD_LABEL"]? || "今日の1枚\n画像の左下、【ALT】ボタンよりカード詳細を確認できます！\n"
   end
 
   def run
