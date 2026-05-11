@@ -96,8 +96,8 @@ class DailyCardSelector
   end
 
   private def extract_cards_from_const_cards(html : String, source_url : String?) : Array(CardCandidate)
-    json_array = extract_json_array_after_marker(html, "const CARDS =")
-    raw_cards = JSON.parse(json_array).as_a
+    json_array_text = extract_cards_json_array(html)
+    raw_cards = JSON.parse(json_array_text).as_a
 
     cards = [] of CardCandidate
     seen = Set(String).new
@@ -125,45 +125,44 @@ class DailyCardSelector
     cards
   end
 
-  private def extract_json_array_after_marker(html : String, marker : String) : String
+  private def extract_cards_json_array(html : String) : String
+    marker = "const CARDS = "
     marker_index = html.index(marker)
     raise "#{marker} が見つかりませんでした" unless marker_index
 
-    array_start = html.index('[', marker_index)
+    search_start = marker_index + marker.bytesize
+    array_start = html.index('[', search_start)
     raise "CARDS 配列の開始位置が見つかりませんでした" unless array_start
 
     array_end = find_matching_array_end(html, array_start)
     raise "CARDS 配列の終了位置が見つかりませんでした" if array_end < array_start
 
-    html.byte_slice(array_start, array_end - array_start + 1)
+    html[array_start..array_end]
   end
 
   private def find_matching_array_end(text : String, start_index : Int32) : Int32
-    bytes = text.to_slice
-
     depth = 0
     in_string = false
     escaped = false
 
     i = start_index
-    while i < bytes.size
-      byte = bytes[i]
+    while i < text.bytesize
+      ch = text.byte_at(i)
 
       if in_string
         if escaped
           escaped = false
-        elsif byte == '\\'.ord
+        elsif ch == '\\'.ord
           escaped = true
-        elsif byte == '"'.ord
+        elsif ch == '"'.ord
           in_string = false
         end
       else
-        case byte
-        when '"'.ord
+        if ch == '"'.ord
           in_string = true
-        when '['.ord
+        elsif ch == '['.ord
           depth += 1
-        when ']'.ord
+        elsif ch == ']'.ord
           depth -= 1
           return i if depth == 0
         end
