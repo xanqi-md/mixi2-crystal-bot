@@ -4,13 +4,37 @@ require "file_utils"
 require "set"
 
 class CardCandidate
-  include JSON::Serializable
-
   getter name : String
   getter image_url : String
   getter source_url : String?
+  getter card_type : String
+  getter property_type : String?
+  getter attribute : String?
+  getter races : Array(String)
+  getter specs : Array(String)
+  getter level : Int32?
+  getter rank : Int32?
+  getter attack : Int32?
+  getter defense : Int32?
+  getter rarity : String?
+  getter card_text : String?
 
-  def initialize(@name : String, @image_url : String, @source_url : String? = nil)
+  def initialize(
+    @name : String,
+    @image_url : String,
+    @source_url : String?,
+    @card_type : String,
+    @property_type : String?,
+    @attribute : String?,
+    @races : Array(String),
+    @specs : Array(String),
+    @level : Int32?,
+    @rank : Int32?,
+    @attack : Int32?,
+    @defense : Int32?,
+    @rarity : String?,
+    @card_text : String?
+  )
   end
 end
 
@@ -22,13 +46,15 @@ class DailyCardPayload
   getter image_url : String
   getter source_url : String?
   getter date_key : String
+  getter media_description : String
 
   def initialize(
     @text : String,
     @card_name : String,
     @image_url : String,
     @source_url : String?,
-    @date_key : String
+    @date_key : String,
+    @media_description : String
   )
   end
 end
@@ -56,13 +82,15 @@ class DailyCardSelector
 
     date_key = jst_date_key
     chosen = select_card(cards, date_key)
+    media_description = build_media_description(chosen)
 
     payload = DailyCardPayload.new(
       "#{@post_label}\n#{chosen.name}",
       chosen.name,
       chosen.image_url,
       chosen.source_url,
-      date_key
+      date_key,
+      media_description
     )
 
     FileUtils.mkdir_p(File.dirname(@output_path))
@@ -72,6 +100,7 @@ class DailyCardSelector
     puts "選択日: #{date_key}"
     puts "カード名: #{chosen.name}"
     puts "画像URL: #{chosen.image_url}"
+    puts "description: #{media_description}"
     puts "payload: #{@output_path}"
   end
 
@@ -97,10 +126,6 @@ class DailyCardSelector
 
   private def extract_cards_from_const_cards(html : String, source_url : String?) : Array(CardCandidate)
     json_array_text = extract_cards_json_array(html)
-
-    puts "CARDS JSON 先頭: #{json_array_text[0, Math.min(120, json_array_text.size)]}"
-    puts "CARDS JSON 末尾: #{json_array_text[Math.max(0, json_array_text.size - 120), Math.min(120, json_array_text.size)]}"
-
     raw_cards = JSON.parse(json_array_text).as_a
 
     cards = [] of CardCandidate
@@ -109,21 +134,51 @@ class DailyCardSelector
     raw_cards.each do |entry|
       obj = entry.as_h
 
-      name = obj["n"]?.try(&.as_s?) || ""
-      image_id = obj["i"]?.try(&.as_s?) || ""
+      name = clean_text(string_field(obj, "n") || "")
+      image_id = (string_field(obj, "i") || "").strip
+      card_type = clean_text(string_field(obj, "c") || "")
+      next if name.empty? || image_id.empty? || card_type.empty?
 
-      name = clean_text(name)
-      image_id = image_id.strip
+      races = string_array_field(obj, "races")
+      specs = string_array_field(obj, "specs")
+      monster_type_line = clean_text(string_field(obj, "mtl") || "")
 
-      next if name.empty?
-      next if image_id.empty?
+      if races.empty? || specs.empty?
+        fallback_parts = monster_type_line.split("/").map(&.strip).reject(&.empty?)
+        if races.empty? && !fallback_parts.empty?
+          races = [fallback_parts.first]
+        end
+        if specs.empty? && fallback_parts.size > 1
+          specs = fallback_parts[1, fallback_parts.size - 1]
+        end
+      end
+
+      property_type = blank_to_nil(clean_text(string_field(obj, "prop") || ""))
+      attribute = blank_to_nil(clean_text(string_field(obj, "attr") || ""))
+      rarity = blank_to_nil(clean_text(string_field(obj, "rar") || ""))
+      card_text = blank_to_nil(clean_text(string_field(obj, "t") || ""))
 
       image_url = build_image_url(image_id)
       key = "#{name}\u0000#{image_url}"
       next if seen.includes?(key)
 
       seen.add(key)
-      cards << CardCandidate.new(name, image_url, source_url)
+      cards << CardCandidate.new(
+        name,
+        image_url,
+        source_url,
+        card_type,
+        property_type,
+        attribute,
+        races,
+        specs,
+        int_field(obj, "lv"),
+        int_field(obj, "rk"),
+        int_field(obj, "atk"),
+        int_field(obj, "def"),
+        rarity,
+        card_text
+      )
     end
 
     cards
@@ -131,31 +186,58 @@ class DailyCardSelector
 
   private def extract_cards_json_array(html : String) : String
     start_marker = "const CARDS = "
-    end_marker = "const META ="
+    end_markers = [";\nconst META =", ";\r\nconst META ="] of String
 
     start_index = html.index(start_marker)
     raise "#{start_marker} が見つかりませんでした" unless start_index
 
     body_start = start_index + start_marker.size
 
-    end_index = html.index(end_marker, body_start)
-    raise "#{end_marker} が見つかりませんでした" unless end_index
+    end_index = nil
+    end_markers.each do |marker|
+      end_index = html.index(marker, body_start)
+      break if end_index
+    end
+
+    raise "const META = が見つかりませんでした" unless end_index
 
     json_text = html[body_start...end_index].strip
 
-    if json_text.ends_with?(";")
-      json_text = json_text[0, json_text.size - 1].rstrip
-    end
-
-    unless json_text.starts_with?("[")
-      raise "CARDS JSON の先頭が '[' ではありません"
-    end
-
-    unless json_text.ends_with?("]")
-      raise "CARDS JSON の末尾が ']' ではありません"
+    unless json_text.starts_with?("[") && json_text.ends_with?("]")
+      raise "CARDS JSON の切り出しに失敗しました"
     end
 
     json_text
+  end
+
+  private def build_media_description(card : CardCandidate) : String
+    lines = [] of String
+
+    lines << "カード名: #{card.name}"
+    lines << "カード種別: #{card.card_type}"
+
+    if card.card_type == "モンスター"
+      lines << "属性: #{card.attribute.not_nil!}" if present?(card.attribute)
+      lines << "種族: #{card.races.join(" / ")}" unless card.races.empty?
+      lines << "分類: #{card.specs.join(" / ")}" unless card.specs.empty?
+
+      if card.rank
+        lines << "ランク: #{card.rank}"
+      elsif card.level
+        lines << "レベル: #{card.level}"
+      end
+
+      if !card.attack.nil? || !card.defense.nil?
+        lines << "ATK/DEF: #{display_stat(card.attack)} / #{display_stat(card.defense)}"
+      end
+    else
+      lines << "種類: #{card.property_type.not_nil!}" if present?(card.property_type)
+    end
+
+    lines << "レアリティ: #{card.rarity.not_nil!}" if present?(card.rarity)
+    lines << "カードテキスト: #{card.card_text.not_nil!}" if present?(card.card_text)
+
+    lines.join("\n")
   end
 
   private def build_image_url(image_id : String) : String
@@ -167,6 +249,55 @@ class DailyCardSelector
       .gsub(/<[^>]+>/, "")
       .gsub(/\s+/, " ")
       .strip
+  end
+
+  private def string_field(obj : Hash(String, JSON::Any), key : String) : String?
+    value = obj[key]?
+    return nil unless value
+    value.raw.as?(String)
+  end
+
+  private def int_field(obj : Hash(String, JSON::Any), key : String) : Int32?
+    value = obj[key]?
+    return nil unless value
+
+    raw = value.raw
+    case raw
+    when Int64
+      raw.to_i
+    when Int32
+      raw
+    when Float64
+      raw.to_i
+    else
+      nil
+    end
+  end
+
+  private def string_array_field(obj : Hash(String, JSON::Any), key : String) : Array(String)
+    value = obj[key]?
+    return [] of String unless value
+
+    arr = value.as_a?
+    return [] of String unless arr
+
+    arr.compact_map do |item|
+      str = item.raw.as?(String)
+      str ? clean_text(str) : nil
+    end
+  end
+
+  private def blank_to_nil(value : String) : String?
+    stripped = value.strip
+    stripped.empty? ? nil : stripped
+  end
+
+  private def present?(value : String?) : Bool
+    !value.nil? && !value.not_nil!.strip.empty?
+  end
+
+  private def display_stat(value : Int32?) : String
+    value ? value.to_s : "-"
   end
 
   private def jst_date_key : String
