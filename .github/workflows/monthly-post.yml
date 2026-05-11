@@ -1,0 +1,39 @@
+name: Monthly Post (Crystal + Go)
+
+on:
+  schedule:
+    - cron: '0 21 * * *'   # 毎日 UTC 21:00 = JST 6:00
+  workflow_dispatch:
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Crystal
+        uses: crystal-lang/install-crystal@v1
+        with:
+          crystal: latest
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+
+      - name: Build Go binary
+        working-directory: bin
+        run: |
+          go mod init mixi2-poster 2>/dev/null || true
+          go mod tidy
+          go build -o post post.go
+          chmod +x post
+          ls -la post
+
+      - name: Run Crystal bot
+        env:
+          MIXI_CLIENT_ID: ${{ secrets.MIXI_CLIENT_ID }}
+          MIXI_CLIENT_SECRET: ${{ secrets.MIXI_CLIENT_SECRET }}
+          MIXI_TOKEN_URL: https://application-auth.mixi.social/oauth2/token
+          MIXI_API_SERVER: application-api.mixi.social:443
+        run: crystal run src/main.cr
