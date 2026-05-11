@@ -1,6 +1,5 @@
 require "http/client"
 require "json"
-require "process"
 
 class MixiBot
   def initialize
@@ -40,7 +39,7 @@ class MixiBot
   end
 
   def run_once
-    puts "=== mixi2 ボット実行開始 ==="
+    puts "=== mixi2 Plugin ボット実行開始 ==="
 
     token = get_access_token
     unless token
@@ -54,14 +53,12 @@ class MixiBot
 
     if end_of_month?
       puts "✓ 今日は月末です！"
-      message = "【今日は月末です！ミッションの消化をお忘れなく！】"
     else
       puts "今日は月末ではありません"
       return
     end
 
-    puts "投稿メッセージ: #{message}"
-    puts "=== mixi2 ボット実行完了 ==="
+    puts "=== mixi2 Plugin ボット実行完了 ==="
   end
 end
 
