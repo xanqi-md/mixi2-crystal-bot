@@ -1,52 +1,123 @@
-name: Debug Secrets
+name: Monthly Post (Crystal Check + Go Post)
 
 on:
+  schedule:
+    - cron: '0 21 * * *'
   workflow_dispatch:
 
 jobs:
-  debug:
+  post:
     runs-on: ubuntu-latest
+    
     steps:
-      - name: Check environment
-        run: |
-          echo "CLIENT_ID 長: ${#MIXI_CLIENT_ID}"
-          echo "CLIENT_SECRET 長: ${#MIXI_CLIENT_SECRET}"
-          echo "TOKEN_URL: $MIXI_TOKEN_URL"
-          echo "API_SERVER: $MIXI_API_SERVER"
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Crystal
+        uses: crystal-lang/install-crystal@v1
+        with:
+          crystal: latest
+      
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+      
+      - name: Run Crystal bot for month-end check
         env:
           MIXI_CLIENT_ID: ${{ secrets.MIXI_CLIENT_ID }}
           MIXI_CLIENT_SECRET: ${{ secrets.MIXI_CLIENT_SECRET }}
           MIXI_TOKEN_URL: https://application-auth.mixi.social/oauth2/token
           MIXI_API_SERVER: application-api.mixi.social
+        run: crystal run src/main.cr
+      
+      - name: Clone mixi2 sample
+        run: |
+          git clone https://github.com/mixigroup/mixi2-application-sample-go.git /tmp/mixi2-sample
+      
+      - name: Create Go post script
+        run: |
+          mkdir -p /tmp/mixi2-sample/cmd/post
+          cat > /tmp/mixi2-sample/cmd/post/main.go << 'EOF'
+          package main
 
-      - uses: actions/checkout@v4
-      - uses: crystal-lang/install-crystal@v1
-      - name: Test token fetch
-        run: |
-          cat > test.cr << 'EOF'
-          require "http/client"
-          require "json"
-          
-          client_id = ENV["MIXI_CLIENT_ID"]? || "NOT_SET"
-          client_secret = ENV["MIXI_CLIENT_SECRET"]? || "NOT_SET"
-          token_url = ENV["MIXI_TOKEN_URL"]? || ""
-          
-          puts "CLIENT_ID: #{client_id[0..10]}..."
-          puts "CLIENT_SECRET: #{client_secret[0..10]}..."
-          puts "TOKEN_URL: #{token_url}"
-          
-          body = "grant_type=client_credentials&client_id=#{client_id}&client_secret=#{client_secret}"
-          response = HTTP::Client.post(token_url,
-            headers: HTTP::Headers{"Content-Type" => "application/x-www-form-urlencoded"},
-            body: body)
-          
-          puts "Status: #{response.status_code}"
-          puts "Body: #{response.body[0..200]}"
+          import (
+            "context"
+            "crypto/tls"
+            "fmt"
+            "log"
+            "os"
+            "time"
+
+            "github.com/mixigroup/mixi2-application-sdk-go/auth"
+            application_apiv1 "github.com/mixigroup/mixi2-application-sdk-go/gen/go/social/mixi/application/service/application_api/v1"
+            "google.golang.org/grpc"
+            "google.golang.org/grpc/credentials"
+          )
+
+          func main() {
+            fmt.Println("=== mixi2 Monthly Post Bot (Go) ===")
+            
+            now := time.Now()
+            tomorrow := now.AddDate(0, 0, 1)
+            fmt.Printf("現在時刻（UTC）: %s\n", now.Format("2006-01-02 15:04:05 MST"))
+            fmt.Printf("明日の日付: %d日\n", tomorrow.Day())
+            
+            if tomorrow.Day() != 1 {
+              fmt.Printf("月末ではありません（明日は %d 日）\n", tomorrow.Day())
+              return
+            }
+            
+            authenticator, err := auth.NewAuthenticator(
+              os.Getenv("CLIENT_ID"),
+              os.Getenv("CLIENT_SECRET"),
+              os.Getenv("TOKEN_URL"),
+            )
+            if err != nil {
+              log.Fatal("認証初期化失敗:", err)
+            }
+            fmt.Println("✓ 認証初期化成功")
+
+            apiConn, err := grpc.NewClient(
+              os.Getenv("API_ADDRESS"),
+              grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{})),
+            )
+            if err != nil {
+              log.Fatal("API接続失敗:", err)
+            }
+            defer apiConn.Close()
+            fmt.Println("✓ API接続成功")
+
+            client := application_apiv1.NewApplicationServiceClient(apiConn)
+
+            authCtx, err := authenticator.AuthorizedContext(context.Background())
+            if err != nil {
+              log.Fatal("認証コンテキスト取得失敗:", err)
+            }
+            fmt.Println("✓ 認証コンテキスト取得成功")
+
+            fmt.Println("\n=== 月末投稿を実行します ===")
+            
+            resp, err := client.CreatePost(authCtx, &application_apiv1.CreatePostRequest{
+              Text: "【今日は月末です！ミッションの消化をお忘れなく！】",
+            })
+            if err != nil {
+              log.Fatal("ポスト投稿失敗:", err)
+            }
+            fmt.Printf("✓ ポスト投稿成功\n")
+            fmt.Printf("  Post ID: %s\n", resp.Post.PostId)
+          }
           EOF
-          
-          crystal run test.cr
+      
+      - name: Install Go dependencies
+        working-directory: /tmp/mixi2-sample
+        run: go mod tidy
+      
+      - name: Run Go post
+        working-directory: /tmp/mixi2-sample
         env:
-          MIXI_CLIENT_ID: ${{ secrets.MIXI_CLIENT_ID }}
-          MIXI_CLIENT_SECRET: ${{ secrets.MIXI_CLIENT_SECRET }}
-          MIXI_TOKEN_URL: https://application-auth.mixi.social/oauth2/token
-          MIXI_API_SERVER: application-api.mixi.social
+          CLIENT_ID: ${{ secrets.MIXI_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.MIXI_CLIENT_SECRET }}
+          TOKEN_URL: https://application-auth.mixi.social/oauth2/token
+          API_ADDRESS: application-api.mixi.social:443
+        run: go run cmd/post/main.go
