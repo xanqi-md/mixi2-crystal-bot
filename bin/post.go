@@ -12,7 +12,6 @@ import (
 	application_apiv1 "github.com/mixigroup/mixi2-application-sdk-go/gen/go/social/mixi/application/service/application_api/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
-	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 func main() {
@@ -67,10 +66,10 @@ func main() {
 		}
 		fmt.Printf("投稿先コミュニティ ID: %s\n", communityID)
 		
-		// Plugin の場合、community_id を指定
+		// Plugin の場合、community_id を指定（文字列ポインタで渡す）
 		resp, err := client.CreatePost(authCtx, &application_apiv1.CreatePostRequest{
 			Text:        "【今日は月末です！ミッションの消化をお忘れなく！】",
-			CommunityId: wrapperspb.String(communityID),
+			CommunityId: &communityID,
 		})
 		if err != nil {
 			log.Fatal("ポスト投稿失敗:", err)
