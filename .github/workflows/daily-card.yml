@@ -76,7 +76,6 @@ jobs:
         env:
           DAILY_CARD_HTML_URL: https://ygogenesys-ja.com/
           DAILY_CARD_IMAGE_BASE_URL: https://images.ygoprodeck.com/images/cards_cropped
-          DAILY_CARD_LABEL: 今日の1枚
           DAILY_CARD_PAYLOAD_PATH: /tmp/daily_card_payload.json
         run: |
           set -euxo pipefail
@@ -106,9 +105,10 @@ jobs:
           print("date_key:", payload.get("date_key"))
           print("card_name:", payload.get("card_name"))
           print("image_url:", payload.get("image_url"))
-          print("text preview:", payload.get("text", "")[:120])
+          print("text preview:", payload.get("text", "")[:200])
+          print("media_description preview:", payload.get("media_description", "")[:400])
 
-          required = ["text", "card_name", "image_url", "date_key"]
+          required = ["text", "card_name", "image_url", "date_key", "media_description"]
           for key in required:
               value = payload.get(key)
               if not isinstance(value, str) or not value.strip():
