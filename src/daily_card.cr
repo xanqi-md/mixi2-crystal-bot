@@ -100,7 +100,6 @@ class DailyCardSelector
     puts "選択日: #{date_key}"
     puts "カード名: #{chosen.name}"
     puts "画像URL: #{chosen.image_url}"
-    puts "description: #{media_description}"
     puts "payload: #{@output_path}"
   end
 
@@ -137,6 +136,7 @@ class DailyCardSelector
       name = clean_text(string_field(obj, "n") || "")
       image_id = (string_field(obj, "i") || "").strip
       card_type = clean_text(string_field(obj, "c") || "")
+
       next if name.empty? || image_id.empty? || card_type.empty?
 
       races = string_array_field(obj, "races")
@@ -145,9 +145,11 @@ class DailyCardSelector
 
       if races.empty? || specs.empty?
         fallback_parts = monster_type_line.split("/").map(&.strip).reject(&.empty?)
+
         if races.empty? && !fallback_parts.empty?
           races = [fallback_parts.first]
         end
+
         if specs.empty? && fallback_parts.size > 1
           specs = fallback_parts[1, fallback_parts.size - 1]
         end
@@ -193,15 +195,18 @@ class DailyCardSelector
 
     body_start = start_index + start_marker.size
 
-    end_index = nil
+    end_index : Int32? = nil
     end_markers.each do |marker|
-      end_index = html.index(marker, body_start)
-      break if end_index
+      found = html.index(marker, body_start)
+      if found
+        end_index = found
+        break
+      end
     end
 
     raise "const META = が見つかりませんでした" unless end_index
 
-    json_text = html[body_start...end_index].strip
+    json_text = html[body_start...end_index.not_nil!].strip
 
     unless json_text.starts_with?("[") && json_text.ends_with?("]")
       raise "CARDS JSON の切り出しに失敗しました"
@@ -264,11 +269,11 @@ class DailyCardSelector
     raw = value.raw
     case raw
     when Int64
-      raw.to_i
+      raw.to_i32
     when Int32
       raw
     when Float64
-      raw.to_i
+      raw.to_i32
     else
       nil
     end
@@ -317,7 +322,7 @@ class DailyCardSelector
       hash &*= 16777619_u32
     end
 
-    (hash % size.to_u32).to_i
+    (hash % size.to_u32).to_i32
   end
 end
 
