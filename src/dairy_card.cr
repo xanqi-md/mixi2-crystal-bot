@@ -1,13 +1,14 @@
 require "http/client"
 require "json"
 require "file_utils"
+require "set"
 
 class CardCandidate
   include JSON::Serializable
 
-  property name : String
-  property image_url : String
-  property source_url : String?
+  getter name : String
+  getter image_url : String
+  getter source_url : String?
 
   def initialize(@name : String, @image_url : String, @source_url : String? = nil)
   end
@@ -16,31 +17,40 @@ end
 class DailyCardPayload
   include JSON::Serializable
 
-  property text : String
-  property card_name : String
-  property image_url : String
-  property source_url : String?
-  property date_key : String
+  getter text : String
+  getter card_name : String
+  getter image_url : String
+  getter source_url : String?
+  getter date_key : String
 
-  def initialize(@text : String, @card_name : String, @image_url : String, @source_url : String?, @date_key : String)
+  def initialize(
+    @text : String,
+    @card_name : String,
+    @image_url : String,
+    @source_url : String?,
+    @date_key : String
+  )
   end
 end
 
 class DailyCardSelector
-  IMAGE_BASE = "https://images.ygoprodeck.com/images/cards_cropped"
+  DEFAULT_HTML_URL       = "https://ygogenesys-ja.com/"
+  DEFAULT_IMAGE_BASE_URL = "https://images.ygoprodeck.com/images/cards_cropped"
 
   def initialize
-    @html_url = ENV["DAILY_CARD_HTML_URL"]? || "https://ygogenesys-ja.com/"
+    @html_url = ENV["DAILY_CARD_HTML_URL"]?
+    @html_file = ENV["DAILY_CARD_HTML_FILE"]?
+    @image_base_url = ENV["DAILY_CARD_IMAGE_BASE_URL"]? || DEFAULT_IMAGE_BASE_URL
     @output_path = ENV["DAILY_CARD_PAYLOAD_PATH"]? || "/tmp/daily_card_payload.json"
     @post_label = ENV["DAILY_CARD_LABEL"]? || "今日の1枚"
   end
 
   def run
-    html = fetch_html(@html_url)
-    cards = extract_cards_from_const_cards(html)
+    html, source_url = load_html_and_source
+    cards = extract_cards_from_const_cards(html, source_url)
 
     if cards.empty?
-      STDERR.puts "const CARDS からカード候補を抽出できませんでした。"
+      STDERR.puts "カード候補を抽出できませんでした。const CARDS の構造を確認してください。"
       exit 1
     end
 
@@ -51,7 +61,7 @@ class DailyCardSelector
       "#{@post_label}\n#{chosen.name}",
       chosen.name,
       chosen.image_url,
-      @html_url,
+      chosen.source_url,
       date_key
     )
 
@@ -65,87 +75,95 @@ class DailyCardSelector
     puts "payload: #{@output_path}"
   end
 
-  private def fetch_html(url : String) : String
-    response = HTTP::Client.get(url, headers: HTTP::Headers{
-      "User-Agent" => "mixi2-crystal-bot/1.0",
-    })
+  private def load_html_and_source : Tuple(String, String?)
+    if html_file = @html_file
+      return {File.read(html_file), nil}
+    end
+
+    target_url = @html_url || DEFAULT_HTML_URL
+    response = HTTP::Client.get(
+      target_url,
+      headers: HTTP::Headers{
+        "User-Agent" => "mixi2-crystal-bot/1.0",
+      }
+    )
 
     unless response.success?
       raise "HTML 取得失敗: #{response.status_code} #{response.status_message}"
     end
 
-    response.body
+    {response.body, target_url}
   end
 
-  private def extract_cards_from_const_cards(html : String) : Array(CardCandidate)
-    marker = "const CARDS = ["
-    marker_index = html.index(marker)
-    raise "HTML 内に `const CARDS = [` が見つかりません。" unless marker_index
-
-    array_start = marker_index + marker.size - 1
-    array_end = find_json_array_end(html, array_start)
-
-    json_text = html.byte_slice(array_start, array_end - array_start + 1)
-    parsed = JSON.parse(json_text).as_a
+  private def extract_cards_from_const_cards(html : String, source_url : String?) : Array(CardCandidate)
+    json_array = extract_json_array_after_marker(html, "const CARDS =")
+    raw_cards = JSON.parse(json_array).as_a
 
     cards = [] of CardCandidate
-    parsed.each do |item|
-      obj = item.as_h
+    seen = Set(String).new
 
-      name = as_string(obj["n"]?)
-      image_id = as_string(obj["i"]?)
+    raw_cards.each do |entry|
+      obj = entry.as_h
 
-      next if name.nil? || name.not_nil!.strip.empty?
-      next if image_id.nil? || image_id.not_nil!.strip.empty?
+      name = obj["n"]?.try(&.as_s?) || ""
+      image_id = obj["i"]?.try(&.as_s?) || ""
 
-      cards << CardCandidate.new(
-        name.not_nil!.strip,
-        "#{IMAGE_BASE}/#{image_id.not_nil!}.jpg",
-        @html_url
-      )
+      name = clean_text(name)
+      image_id = image_id.strip
+
+      next if name.empty?
+      next if image_id.empty?
+
+      image_url = build_image_url(image_id)
+      key = "#{name}\u0000#{image_url}"
+      next if seen.includes?(key)
+
+      seen.add(key)
+      cards << CardCandidate.new(name, image_url, source_url)
     end
 
     cards
   end
 
-  private def as_string(value : JSON::Any?) : String?
-    return nil unless value
-    raw = value.raw
-    case raw
-    when String
-      raw
-    when Int64, Int32, Float64, Float32, Bool
-      raw.to_s
-    else
-      nil
-    end
+  private def extract_json_array_after_marker(html : String, marker : String) : String
+    marker_index = html.index(marker)
+    raise "#{marker} が見つかりませんでした" unless marker_index
+
+    array_start = html.index('[', marker_index)
+    raise "CARDS 配列の開始位置が見つかりませんでした" unless array_start
+
+    array_end = find_matching_array_end(html, array_start)
+    raise "CARDS 配列の終了位置が見つかりませんでした" if array_end < array_start
+
+    html.byte_slice(array_start, array_end - array_start + 1)
   end
 
-  private def find_json_array_end(text : String, start_index : Int32) : Int32
+  private def find_matching_array_end(text : String, start_index : Int32) : Int32
     bytes = text.to_slice
-    i = start_index
+
     depth = 0
     in_string = false
     escaped = false
 
+    i = start_index
     while i < bytes.size
-      ch = bytes[i].chr
+      byte = bytes[i]
 
       if in_string
         if escaped
           escaped = false
-        elsif ch == '\\'
+        elsif byte == '\\'.ord
           escaped = true
-        elsif ch == '"'
+        elsif byte == '"'.ord
           in_string = false
         end
       else
-        case ch
-        when '"'
+        case byte
+        when '"'.ord
           in_string = true
-        when '['
+        when '['.ord
           depth += 1
-        when ']'
+        when ']'.ord
           depth -= 1
           return i if depth == 0
         end
@@ -154,7 +172,18 @@ class DailyCardSelector
       i += 1
     end
 
-    raise "const CARDS の JSON 配列終端を検出できませんでした。"
+    -1
+  end
+
+  private def build_image_url(image_id : String) : String
+    "#{@image_base_url}/#{image_id}.jpg"
+  end
+
+  private def clean_text(text : String) : String
+    text
+      .gsub(/<[^>]+>/, "")
+      .gsub(/\s+/, " ")
+      .strip
   end
 
   private def jst_date_key : String
@@ -162,8 +191,19 @@ class DailyCardSelector
   end
 
   private def select_card(cards : Array(CardCandidate), date_key : String) : CardCandidate
-    rng = Random.new(date_key.hash)
-    cards[rng.rand(cards.size)]
+    index = stable_index(date_key, cards.size)
+    cards[index]
+  end
+
+  private def stable_index(text : String, size : Int32) : Int32
+    hash = 2166136261_u32
+
+    text.each_byte do |byte|
+      hash ^= byte.to_u32
+      hash &*= 16777619_u32
+    end
+
+    (hash % size.to_u32).to_i
   end
 end
 
