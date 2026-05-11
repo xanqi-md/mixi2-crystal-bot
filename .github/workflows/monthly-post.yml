@@ -1,3 +1,4 @@
+cat > /c/mixi2-crystal-bot/.github/workflows/monthly-post.yml << 'ENDOFFILE'
 name: Monthly Post (Crystal + Go)
 
 on:
@@ -9,7 +10,7 @@ jobs:
   post:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Set up Crystal
         uses: crystal-lang/install-crystal@v1
@@ -17,7 +18,7 @@ jobs:
           crystal: latest
 
       - name: Set up Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
           go-version: '1.21'
 
@@ -37,3 +38,10 @@ jobs:
           MIXI_TOKEN_URL: https://application-auth.mixi.social/oauth2/token
           MIXI_API_SERVER: application-api.mixi.social:443
         run: crystal run src/main.cr
+ENDOFFILE
+
+# コミット・プッシュ
+cd /c/mixi2-crystal-bot
+git add .github/workflows/monthly-post.yml
+git commit -m "Update actions to latest versions (v4, v5)"
+git push origin main
