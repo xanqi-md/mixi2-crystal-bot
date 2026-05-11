@@ -35,5 +35,5 @@ jobs:
           MIXI_CLIENT_ID: ${{ secrets.MIXI_CLIENT_ID }}
           MIXI_CLIENT_SECRET: ${{ secrets.MIXI_CLIENT_SECRET }}
           MIXI_TOKEN_URL: https://application-auth.mixi.social/oauth2/token
-          MIXI_API_SERVER: application-api.mixi.social:443
+          MIXI_API_SERVER: application-api.mixi.social
         run: crystal run src/main.cr
