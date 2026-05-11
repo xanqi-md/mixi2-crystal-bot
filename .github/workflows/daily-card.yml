@@ -2,7 +2,8 @@ name: Daily Card Post
 
 on:
   schedule:
-    # GitHub Actions の cron は UTC。22:00 UTC = 07:00 JST
+    # GitHub Actions の cron は UTC
+    # 22:00 UTC = 07:00 JST
     - cron: '0 22 * * *'
   workflow_dispatch:
 
@@ -27,9 +28,13 @@ jobs:
       - name: Select daily card with Crystal
         env:
           DAILY_CARD_HTML_URL: https://ygogenesys-ja.com/
+          DAILY_CARD_IMAGE_BASE_URL: https://images.ygoprodeck.com/images/cards_cropped
           DAILY_CARD_LABEL: 今日の1枚
           DAILY_CARD_PAYLOAD_PATH: /tmp/daily_card_payload.json
         run: crystal run src/daily_card.cr
+
+      - name: Show generated payload
+        run: cat /tmp/daily_card_payload.json
 
       - name: Download Go dependencies
         working-directory: bin
