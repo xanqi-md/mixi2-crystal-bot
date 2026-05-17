@@ -120,6 +120,23 @@ class DailyCardSelector
       raise "HTML 取得失敗: #{response.status_code} #{response.status_message}"
     end
 
+  base_url = target_url.ends_with?("/") ? target_url[0...-1] : target_url
+  script_url = "#{base_url}/script.js"
+  
+  script_response = HTTP::Client.get(
+    script_url,
+    headers: HTTP::Headers{
+      "User-Agent" => "mixi2-crystal-bot/1.0",
+    }
+  )
+
+  html_content = response.body
+  if script_response.success?
+    html_content = "#{html_content}\n#{script_response.body}"
+  end
+
+  {html_content, target_url}
+end
     {response.body, target_url}
   end
 
