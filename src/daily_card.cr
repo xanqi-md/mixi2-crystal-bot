@@ -138,12 +138,24 @@ class DailyCardSelector
   {html_content, target_url}
 end
 
-  private def extract_cards_from_const_cards(html : String, source_url : String?) : Array(CardCandidate)
-    json_array_text = extract_cards_json_array(html)
-    raw_cards = JSON.parse(json_array_text).as_a
+private def extract_cards_from_const_cards(html : String, source_url : String?) : Array(CardCandidate)
+  json_array_text = extract_cards_json_array(html)
+  
+  # デバッグ: JSONの先頭部分を出力
+  puts "JSON先頭200文字: #{json_array_text[0..200]?"
+  puts "JSONの長さ: #{json_array_text.size}"
+  
+  raw_cards = JSON.parse(json_array_text).as_a
 
-    cards = [] of CardCandidate
-    seen = Set(String).new
+  puts "パースされたカード数: #{raw_cards.size}"
+  
+  # 最初のカードの構造を確認
+  if raw_cards.size > 0
+    puts "最初のカードの内容: #{raw_cards.first}"
+  end
+
+  cards = [] of CardCandidate
+  seen = Set(String).new
 
     raw_cards.each do |entry|
       obj = entry.as_h
