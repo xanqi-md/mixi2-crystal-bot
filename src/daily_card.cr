@@ -142,7 +142,7 @@ private def extract_cards_from_const_cards(html : String, source_url : String?) 
   json_array_text = extract_cards_json_array(html)
   
   # デバッグ: JSONの先頭部分を出力
-  puts "JSON先頭200文字: #{json_array_text[0..200]?"
+  puts "JSON先頭200文字: #{json_array_text[0..200]?}"
   puts "JSONの長さ: #{json_array_text.size}"
   
   raw_cards = JSON.parse(json_array_text).as_a
