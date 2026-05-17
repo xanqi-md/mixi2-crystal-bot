@@ -187,7 +187,7 @@ class DailyCardSelector
   end
 
   private def extract_cards_json_array(html : String) : String
-    start_marker = "const CARDS = "
+    start_marker = "const RAW_CARDS = "
     end_markers = [";\nconst META =", ";\r\nconst META ="] of String
 
     start_index = html.index(start_marker)
