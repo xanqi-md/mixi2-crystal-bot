@@ -140,78 +140,57 @@ end
 
 private def extract_cards_from_const_cards(html : String, source_url : String?) : Array(CardCandidate)
   json_array_text = extract_cards_json_array(html)
-  
-  # デバッグ: JSONの先頭部分を出力
-  puts "JSON先頭200文字: #{json_array_text[0..200]?}"
-  puts "JSONの長さ: #{json_array_text.size}"
-  
   raw_cards = JSON.parse(json_array_text).as_a
-
-  puts "パースされたカード数: #{raw_cards.size}"
-  
-  # 最初のカードの構造を確認
-  if raw_cards.size > 0
-    puts "最初のカードの内容: #{raw_cards.first}"
-  end
 
   cards = [] of CardCandidate
   seen = Set(String).new
 
-    raw_cards.each do |entry|
-      obj = entry.as_h
+  raw_cards.each do |entry|
+    obj = entry.as_h
 
-      name = clean_text(string_field(obj, "n") || "")
-      image_id = (string_field(obj, "i") || "").strip
-      card_type = clean_text(string_field(obj, "c") || "")
+    name = clean_text(string_field(obj, "name") || "")
+    image_id = (string_field(obj, "file_name") || "").strip
+    card_type = clean_text(string_field(obj, "card_type") || "")
 
-      next if name.empty? || image_id.empty? || card_type.empty?
+    next if name.empty? || image_id.empty? || card_type.empty?
 
-      races = string_array_field(obj, "races")
-      specs = string_array_field(obj, "specs")
-      monster_type_line = clean_text(string_field(obj, "mtl") || "")
+    # monster_type_lineから種族と分類を抽出
+    monster_type_line = clean_text(string_field(obj, "monster_type_line") || "")
+    fallback_parts = monster_type_line.split("/").map(&.strip).reject(&.empty?)
+    
+    races = fallback_parts.size > 0 ? [fallback_parts[0]] : [] of String
+    specs = fallback_parts.size > 1 ? fallback_parts[1, fallback_parts.size - 1] : [] of String
 
-      if races.empty? || specs.empty?
-        fallback_parts = monster_type_line.split("/").map(&.strip).reject(&.empty?)
+    property_type = blank_to_nil(clean_text(string_field(obj, "property") || ""))
+    attribute = blank_to_nil(clean_text(string_field(obj, "attribute") || ""))
+    rarity = blank_to_nil(clean_text(string_field(obj, "master_duel_rarity") || ""))
+    card_text = blank_to_nil(clean_text(string_field(obj, "text") || ""))
 
-        if races.empty? && !fallback_parts.empty?
-          races = [fallback_parts.first]
-        end
+    image_url = build_image_url(image_id)
+    key = "#{name}\u0000#{image_url}"
+    next if seen.includes?(key)
 
-        if specs.empty? && fallback_parts.size > 1
-          specs = fallback_parts[1, fallback_parts.size - 1]
-        end
-      end
-
-      property_type = blank_to_nil(clean_text(string_field(obj, "prop") || ""))
-      attribute = blank_to_nil(clean_text(string_field(obj, "attr") || ""))
-      rarity = blank_to_nil(clean_text(string_field(obj, "rar") || ""))
-      card_text = blank_to_nil(clean_text(string_field(obj, "t") || ""))
-
-      image_url = build_image_url(image_id)
-      key = "#{name}\u0000#{image_url}"
-      next if seen.includes?(key)
-
-      seen.add(key)
-      cards << CardCandidate.new(
-        name,
-        image_url,
-        source_url,
-        card_type,
-        property_type,
-        attribute,
-        races,
-        specs,
-        int_field(obj, "lv"),
-        int_field(obj, "rk"),
-        int_field(obj, "atk"),
-        int_field(obj, "def"),
-        rarity,
-        card_text
-      )
-    end
-
-    cards
+    seen.add(key)
+    cards << CardCandidate.new(
+      name,
+      image_url,
+      source_url,
+      card_type,
+      property_type,
+      attribute,
+      races,
+      specs,
+      int_field(obj, "level"),
+      int_field(obj, "rank"),
+      int_field(obj, "atk"),
+      int_field(obj, "def"),
+      rarity,
+      card_text
+    )
   end
+
+  cards
+end
 
   private def extract_cards_json_array(html : String) : String
     start_marker = "const RAW_CARDS = "
