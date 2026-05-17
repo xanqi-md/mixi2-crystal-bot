@@ -203,32 +203,60 @@ end
 
   private def extract_cards_json_array(html : String) : String
     start_marker = "const RAW_CARDS = "
-    end_markers = [";\nconst META =", ";\r\nconst META ="] of String
-
+    
     start_index = html.index(start_marker)
     raise "#{start_marker} が見つかりませんでした" unless start_index
 
     body_start = start_index + start_marker.size
 
+    # JSONの配列を正確に抽出するため、括弧のバランスを取る
+    bracket_count = 0
+    in_string = false
+    escape_next = false
     end_index : Int32? = nil
-    end_markers.each do |marker|
-      found = html.index(marker, body_start)
-      if found
-        end_index = found
-        break
+
+    html.each_char_with_index do |char, i|
+      next if i < body_start
+
+      if escape_next
+        escape_next = false
+        next
+      end
+
+      if char == '\\'
+        escape_next = true
+        next
+      end
+
+      if char == '"' && !escape_next
+        in_string = !in_string
+        next
+      end
+
+      next if in_string
+
+      if char == '['
+        bracket_count += 1
+      elsif char == ']'
+        bracket_count -= 1
+        if bracket_count == 0
+          end_index = i + 1
+          break
+        end
       end
     end
 
-    raise "const META = が見つかりませんでした" unless end_index
+    raise "RAW_CARDS の終端が見つかりませんでした" unless end_index
 
     json_text = html[body_start...end_index.not_nil!].strip
 
     unless json_text.starts_with?("[") && json_text.ends_with?("]")
-      raise "CARDS JSON の切り出しに失敗しました"
+      raise "RAW_CARDS JSON の切り出しに失敗しました。先頭: #{json_text[0..50]?}"
     end
 
     json_text
   end
+
 
   private def build_media_description(card : CardCandidate) : String
     lines = [] of String
