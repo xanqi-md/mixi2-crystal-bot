@@ -150,7 +150,13 @@ raw_cards.each do |entry|
 
   name = clean_text(string_field(obj, "name") || "")
   file_name = (string_field(obj, "file_name") || "").strip
-  image_id = file_name.empty? ? "" : file_name.to_i.to_s
+  image_id = if file_name.empty?
+    ""
+  elsif file_name.to_i?
+    file_name.to_i.to_s  # 数字の場合は先頭ゼロをトリム
+  else
+    file_name  # 文字列の場合はそのまま使用
+  end
   card_type = clean_text(string_field(obj, "card_type") || "")
 
   next if name.empty? || image_id.empty? || card_type.empty?
