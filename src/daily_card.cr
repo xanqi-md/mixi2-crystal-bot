@@ -149,8 +149,8 @@ raw_cards.each do |entry|
   obj = entry.as_h
 
   name = clean_text(string_field(obj, "name") || "")
-  file_name = string_field(obj, "file_name") || ""
-  image_id = file_name.to_i.to_s  # ← ここを修正
+  file_name = (string_field(obj, "file_name") || "").strip
+  image_id = file_name.empty? ? "" : file_name.to_i.to_s
   card_type = clean_text(string_field(obj, "card_type") || "")
 
   next if name.empty? || image_id.empty? || card_type.empty?
