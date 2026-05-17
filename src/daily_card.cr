@@ -145,30 +145,31 @@ private def extract_cards_from_const_cards(html : String, source_url : String?) 
   cards = [] of CardCandidate
   seen = Set(String).new
 
-  raw_cards.each do |entry|
-    obj = entry.as_h
+raw_cards.each do |entry|
+  obj = entry.as_h
 
-    name = clean_text(string_field(obj, "name") || "")
-    image_id = (string_field(obj, "file_name") || "").strip
-    card_type = clean_text(string_field(obj, "card_type") || "")
+  name = clean_text(string_field(obj, "name") || "")
+  file_name = string_field(obj, "file_name") || ""
+  image_id = file_name.to_i.to_s  # ← ここを修正
+  card_type = clean_text(string_field(obj, "card_type") || "")
 
-    next if name.empty? || image_id.empty? || card_type.empty?
+  next if name.empty? || image_id.empty? || card_type.empty?
 
-    # monster_type_lineから種族と分類を抽出
-    monster_type_line = clean_text(string_field(obj, "monster_type_line") || "")
-    fallback_parts = monster_type_line.split("/").map(&.strip).reject(&.empty?)
-    
-    races = fallback_parts.size > 0 ? [fallback_parts[0]] : [] of String
-    specs = fallback_parts.size > 1 ? fallback_parts[1, fallback_parts.size - 1] : [] of String
+  # monster_type_lineから種族と分類を抽出
+  monster_type_line = clean_text(string_field(obj, "monster_type_line") || "")
+  fallback_parts = monster_type_line.split("/").map(&.strip).reject(&.empty?)
+  
+  races = fallback_parts.size > 0 ? [fallback_parts[0]] : [] of String
+  specs = fallback_parts.size > 1 ? fallback_parts[1, fallback_parts.size - 1] : [] of String
 
-    property_type = blank_to_nil(clean_text(string_field(obj, "property") || ""))
-    attribute = blank_to_nil(clean_text(string_field(obj, "attribute") || ""))
-    rarity = blank_to_nil(clean_text(string_field(obj, "master_duel_rarity") || ""))
-    card_text = blank_to_nil(clean_text(string_field(obj, "text") || ""))
+  property_type = blank_to_nil(clean_text(string_field(obj, "property") || ""))
+  attribute = blank_to_nil(clean_text(string_field(obj, "attribute") || ""))
+  rarity = blank_to_nil(clean_text(string_field(obj, "master_duel_rarity") || ""))
+  card_text = blank_to_nil(clean_text(string_field(obj, "text") || ""))
 
-    image_url = build_image_url(image_id)
-    key = "#{name}\u0000#{image_url}"
-    next if seen.includes?(key)
+  image_url = build_image_url(image_id)
+  key = "#{name}\u0000#{image_url}"
+  next if seen.includes?(key)
 
     seen.add(key)
     cards << CardCandidate.new(
