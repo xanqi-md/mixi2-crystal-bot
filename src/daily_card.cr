@@ -137,8 +137,6 @@ class DailyCardSelector
 
   {html_content, target_url}
 end
-    {response.body, target_url}
-  end
 
   private def extract_cards_from_const_cards(html : String, source_url : String?) : Array(CardCandidate)
     json_array_text = extract_cards_json_array(html)
