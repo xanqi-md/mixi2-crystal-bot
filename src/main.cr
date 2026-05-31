@@ -36,7 +36,7 @@ class MixiBot
 
   def is_noon_in_jst?
     # UTCの現在時刻を取得
-    utc_now = Time.utc_now
+    utc_now = Time.now
     
     # JSTに変換（UTC+9）
     jst_now = utc_now.in(Time::Location.fixed(9 * 3600))
