@@ -1,5 +1,6 @@
 require "http/client"
 require "json"
+require "time"
 
 class MixiBot
   def initialize
@@ -33,8 +34,19 @@ class MixiBot
     end
   end
 
+  def is_noon_in_jst?
+    # UTCの現在時刻を取得
+    utc_now = Time.utc_now
+    
+    # JSTに変換（UTC+9）
+    jst_now = utc_now.in(Time::Location.fixed(9 * 3600))
+    
+    # JSTの時間が12時かどうかを判定
+    jst_now.hour == 12
+  end
+
   def end_of_month?
-    tomorrow = Time.local + 1.day
+    tomorrow = Time.utc_now.in(Time::Location.fixed(9 * 3600)) + 1.day
     tomorrow.day == 1
   end
 
@@ -47,14 +59,19 @@ class MixiBot
       return
     end
 
-    tomorrow = Time.local + 1.day
+    jst_now = Time.utc_now.in(Time::Location.fixed(9 * 3600))
+    tomorrow = jst_now + 1.day
+    
+    puts "現在時刻（JST）: #{jst_now}"
     puts "明日の日付: #{tomorrow.day}日"
     puts "月末判定: #{end_of_month?}"
+    puts "12時判定: #{is_noon_in_jst?}"
 
-    if end_of_month?
-      puts "✓ 今日は月末です！"
+    if end_of_month? && is_noon_in_jst?
+      puts "✓ 今日は月末の12時です！投稿します"
+      # ここに投稿処理を追加
     else
-      puts "今日は月末ではありません"
+      puts "投稿条件を満たしていません"
       return
     end
 
