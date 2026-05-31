@@ -35,8 +35,8 @@ class MixiBot
   end
 
   def get_jst_now
-    # UNIXタイムスタンプから現在時刻を取得
-    utc_time = Time.new(Time.now.epoch)
+    # 現在時刻をUTC時刻で取得
+    utc_time = Time.new
     # JSTに変換（UTC+9時間）
     utc_time.in(Time::Location.fixed(9 * 3600))
   end
