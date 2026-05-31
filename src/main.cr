@@ -35,8 +35,8 @@ class MixiBot
   end
 
   def is_noon_in_jst?
-    # UTCの現在時刻を取得
-    utc_now = Time.now
+    # 現在時刻をUTCで取得
+    utc_now = Time.now(location: Time::Location::UTC)
     
     # JSTに変換（UTC+9）
     jst_now = utc_now.in(Time::Location.fixed(9 * 3600))
@@ -46,7 +46,9 @@ class MixiBot
   end
 
   def end_of_month?
-    tomorrow = Time.utc_now.in(Time::Location.fixed(9 * 3600)) + 1.day
+    utc_now = Time.now(location: Time::Location::UTC)
+    jst_now = utc_now.in(Time::Location.fixed(9 * 3600))
+    tomorrow = jst_now + 1.day
     tomorrow.day == 1
   end
 
@@ -59,7 +61,8 @@ class MixiBot
       return
     end
 
-    jst_now = Time.utc_now.in(Time::Location.fixed(9 * 3600))
+    utc_now = Time.now(location: Time::Location::UTC)
+    jst_now = utc_now.in(Time::Location.fixed(9 * 3600))
     tomorrow = jst_now + 1.day
     
     puts "現在時刻（JST）: #{jst_now}"
