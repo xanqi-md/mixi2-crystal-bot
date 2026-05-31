@@ -35,10 +35,13 @@ class MixiBot
   end
 
   def get_jst_now
-    # 現在時刻をUTC時刻で取得
-    utc_time = Time.new
-    # JSTに変換（UTC+9時間）
-    utc_time.in(Time::Location.fixed(9 * 3600))
+    # 現在時刻をLibC::Timespecで取得してJSTに変換
+    timespec = uninitialized LibC::Timespec
+    LibC.clock_gettime(LibC::CLOCK_REALTIME, pointerof(timespec))
+    
+    utc_time = Time.new(timespec)
+    jst_time = utc_time.in(Time::Location.fixed(9 * 3600))
+    jst_time
   end
 
   def is_noon_in_jst?
