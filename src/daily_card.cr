@@ -65,18 +65,17 @@ class DailyCardSelector
 
   def initialize
     @html_url = ENV["DAILY_CARD_HTML_URL"]?
-    @html_file = ENV["DAILY_CARD_HTML_FILE"]?
     @image_base_url = ENV["DAILY_CARD_IMAGE_BASE_URL"]? || DEFAULT_IMAGE_BASE_URL
     @output_path = ENV["DAILY_CARD_PAYLOAD_PATH"]? || "/tmp/daily_card_payload.json"
     @post_label = ENV["DAILY_CARD_LABEL"]? || "今日の1枚\n画像の左下、【ALT】ボタンよりカード詳細を確認できます！\n"
   end
 
   def run
-    html, source_url = load_html_and_source
-    cards = extract_cards_from_const_cards(html, source_url)
+    source_url = @html_url || DEFAULT_HTML_URL
+    cards = load_cards_from_json(source_url)
 
     if cards.empty?
-      STDERR.puts "カード候補を抽出できませんでした。const CARDS の構造を確認してください。"
+      STDERR.puts "カード候補を抽出できませんでした。cards.slim.json の構造を確認してください。"
       exit 1
     end
 
@@ -103,158 +102,96 @@ class DailyCardSelector
     puts "payload: #{@output_path}"
   end
 
-  private def load_html_and_source : Tuple(String, String?)
-    if html_file = @html_file
-      return {File.read(html_file), nil}
-    end
+  # cards.slim.json を取得してパースする
+  private def load_cards_from_json(base_url : String) : Array(CardCandidate)
+    trimmed = base_url.ends_with?("/") ? base_url[0...-1] : base_url
+    json_url = "#{trimmed}/cards.slim.json"
 
-    target_url = @html_url || DEFAULT_HTML_URL
     response = HTTP::Client.get(
-      target_url,
+      json_url,
       headers: HTTP::Headers{
         "User-Agent" => "mixi2-crystal-bot/1.0",
       }
     )
 
     unless response.success?
-      raise "HTML 取得失敗: #{response.status_code} #{response.status_message}"
+      raise "cards.slim.json 取得失敗: #{response.status_code} #{response.status_message} (#{json_url})"
     end
 
-  base_url = target_url.ends_with?("/") ? target_url[0...-1] : target_url
-  script_url = "#{base_url}/script.js"
-  
-  script_response = HTTP::Client.get(
-    script_url,
-    headers: HTTP::Headers{
-      "User-Agent" => "mixi2-crystal-bot/1.0",
-    }
-  )
-
-  html_content = response.body
-  if script_response.success?
-    html_content = "#{html_content}\n#{script_response.body}"
+    parse_cards_json(response.body, base_url)
   end
 
-  {html_content, target_url}
-end
+  private def parse_cards_json(json_body : String, source_url : String?) : Array(CardCandidate)
+    raw_cards = JSON.parse(json_body).as_a
 
-private def extract_cards_from_const_cards(html : String, source_url : String?) : Array(CardCandidate)
-  json_array_text = extract_cards_json_array(html)
-  raw_cards = JSON.parse(json_array_text).as_a
+    cards = [] of CardCandidate
+    seen = Set(String).new
 
-  cards = [] of CardCandidate
-  seen = Set(String).new
+    raw_cards.each do |entry|
+      obj = entry.as_h
 
-raw_cards.each do |entry|
-  obj = entry.as_h
+      name = clean_text(string_field(obj, "name") || "")
 
-  name = clean_text(string_field(obj, "name") || "")
-  file_name = (string_field(obj, "file_name") || "").strip
-  image_id = if file_name.empty?
-    ""
-  elsif file_name.to_i?
-    file_name.to_i.to_s  # 数字の場合は先頭ゼロをトリム
-  else
-    file_name  # 文字列の場合はそのまま使用
-  end
-  card_type = clean_text(string_field(obj, "card_type") || "")
-
-  next if name.empty? || image_id.empty? || card_type.empty?
-
-  # monster_type_lineから種族と分類を抽出
-  monster_type_line = clean_text(string_field(obj, "monster_type_line") || "")
-  fallback_parts = monster_type_line.split("/").map(&.strip).reject(&.empty?)
-  
-  races = fallback_parts.size > 0 ? [fallback_parts[0]] : [] of String
-  specs = fallback_parts.size > 1 ? fallback_parts[1, fallback_parts.size - 1] : [] of String
-
-  property_type = blank_to_nil(clean_text(string_field(obj, "property") || ""))
-  attribute = blank_to_nil(clean_text(string_field(obj, "attribute") || ""))
-  rarity = blank_to_nil(clean_text(string_field(obj, "master_duel_rarity") || ""))
-  card_text = blank_to_nil(clean_text(string_field(obj, "text") || ""))
-
-  image_url = build_image_url(image_id)
-  key = "#{name}\u0000#{image_url}"
-  next if seen.includes?(key)
-
-    seen.add(key)
-    cards << CardCandidate.new(
-      name,
-      image_url,
-      source_url,
-      card_type,
-      property_type,
-      attribute,
-      races,
-      specs,
-      int_field(obj, "level"),
-      int_field(obj, "rank"),
-      int_field(obj, "atk"),
-      int_field(obj, "def"),
-      rarity,
-      card_text
-    )
-  end
-
-  cards
-end
-
-  private def extract_cards_json_array(html : String) : String
-    start_marker = "const RAW_CARDS = "
-    
-    start_index = html.index(start_marker)
-    raise "#{start_marker} が見つかりませんでした" unless start_index
-
-    body_start = start_index + start_marker.size
-
-    # JSONの配列を正確に抽出するため、括弧のバランスを取る
-    bracket_count = 0
-    in_string = false
-    escape_next = false
-    end_index : Int32? = nil
-
-    html.each_char_with_index do |char, i|
-      next if i < body_start
-
-      if escape_next
-        escape_next = false
-        next
-      end
-
-      if char == '\\'
-        escape_next = true
-        next
-      end
-
-      if char == '"' && !escape_next
-        in_string = !in_string
-        next
-      end
-
-      next if in_string
-
-      if char == '['
-        bracket_count += 1
-      elsif char == ']'
-        bracket_count -= 1
-        if bracket_count == 0
-          end_index = i + 1
-          break
+      # file_name は数値または文字列で格納されている
+      file_name_raw = obj["file_name"]?
+      image_id = if file_name_raw.nil?
+        ""
+      else
+        raw = file_name_raw.raw
+        case raw
+        when Int64
+          raw.to_s
+        when Float64
+          raw.to_i64.to_s
+        when String
+          str = raw.strip
+          str.to_i64? ? str.to_i64.to_s : str
+        else
+          ""
         end
       end
+
+      card_type = clean_text(string_field(obj, "card_type") || "")
+
+      next if name.empty? || image_id.empty? || card_type.empty?
+
+      # monster_type_line から種族と分類を抽出
+      monster_type_line = clean_text(string_field(obj, "monster_type_line") || "")
+      fallback_parts = monster_type_line.split("/").map(&.strip).reject(&.empty?)
+
+      races = fallback_parts.size > 0 ? [fallback_parts[0]] : [] of String
+      specs = fallback_parts.size > 1 ? fallback_parts[1, fallback_parts.size - 1] : [] of String
+
+      property_type = blank_to_nil(clean_text(string_field(obj, "property") || ""))
+      attribute     = blank_to_nil(clean_text(string_field(obj, "attribute") || ""))
+      rarity        = blank_to_nil(clean_text(string_field(obj, "master_duel_rarity") || ""))
+      card_text     = blank_to_nil(clean_text(string_field(obj, "text") || ""))
+
+      image_url = build_image_url(image_id)
+      key = "#{name}\u0000#{image_url}"
+      next if seen.includes?(key)
+
+      seen.add(key)
+      cards << CardCandidate.new(
+        name,
+        image_url,
+        source_url,
+        card_type,
+        property_type,
+        attribute,
+        races,
+        specs,
+        int_field(obj, "level"),
+        int_field(obj, "rank"),
+        int_field(obj, "atk"),
+        int_field(obj, "def"),
+        rarity,
+        card_text
+      )
     end
 
-    raise "RAW_CARDS の終端が見つかりませんでした" unless end_index
-
-    json_text = html[body_start...end_index.not_nil!].strip
-
-    unless json_text.starts_with?("[") && json_text.ends_with?("]")
-      raise "RAW_CARDS JSON の切り出しに失敗しました。先頭: #{json_text[0..50]?}"
-    end
-
-    json_text
+    cards
   end
-
 
   private def build_media_description(card : CardCandidate) : String
     lines = [] of String
@@ -315,21 +252,11 @@ end
       raw
     when Float64
       raw.to_i32
+    when String
+      str = raw.strip
+      str.empty? ? nil : str.to_i32?
     else
       nil
-    end
-  end
-
-  private def string_array_field(obj : Hash(String, JSON::Any), key : String) : Array(String)
-    value = obj[key]?
-    return [] of String unless value
-
-    arr = value.as_a?
-    return [] of String unless arr
-
-    arr.compact_map do |item|
-      str = item.raw.as?(String)
-      str ? clean_text(str) : nil
     end
   end
 
